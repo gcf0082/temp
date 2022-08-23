@@ -3756,8 +3756,14 @@ function activate(context) {
         });
     }));
     context.subscriptions.push(openFileDisposable);
+    let externalCalleeProvider = new externalCalleesProvider_1.ExternalCalleeProvider();
     //vscode.window.registerTreeDataProvider('method-callees', new CallGraphCalleeProvider());
-    vscode.window.registerTreeDataProvider('project-external-callees', new externalCalleesProvider_1.ExternalCalleeProvider());
+    vscode.window.registerTreeDataProvider('project-external-callees', externalCalleeProvider);
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration("codeseeker.dangerousFunction")) {
+            externalCalleeProvider.refreshDangerousFunctionHighlight();
+        }
+    }));
 }
 exports.activate = activate;
 function deactivate() { }
@@ -3858,6 +3864,7 @@ class ExternalCalleeProvider {
             newNode.data.fullMethod = callee;
             newNode.children = new Array(calllers.length);
             newNode.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
+            newNode.iconPath = new vscode.ThemeIcon('getting-started-setup');
             for (const [callerMethod, callerAttr] of calllers.entries()) {
                 var newCaller = new Callee('');
                 newCaller.label = callerMethod;
@@ -3875,6 +3882,21 @@ class ExternalCalleeProvider {
     refresh(jsonData) {
         this.data = [];
         this.transferCallGraph2TreeJson(JSON.parse(jsonData), true);
+        this.refreshDangerousFunctionHighlight();
+        this._onDidChangeTreeData.fire(null);
+    }
+    refreshDangerousFunctionHighlight() {
+        const dangerousFuncs = vscode.workspace.getConfiguration('codeseeker').dangerousFunction;
+        this.data.forEach((item) => {
+            dangerousFuncs.forEach((func) => {
+                if (item.data.fullMethod.indexOf(func) != -1) {
+                    item.iconPath = new vscode.ThemeIcon('getting-started-setup', new vscode.ThemeColor('list.highlightForeground'));
+                }
+                else {
+                    item.iconPath = new vscode.ThemeIcon('getting-started-setup');
+                }
+            });
+        });
         this._onDidChangeTreeData.fire(null);
     }
 }
