@@ -3759,11 +3759,12 @@ function activate(context) {
     let externalCalleeProvider = new externalCalleesProvider_1.ExternalCalleeProvider();
     //vscode.window.registerTreeDataProvider('method-callees', new CallGraphCalleeProvider());
     vscode.window.registerTreeDataProvider('project-external-callees', externalCalleeProvider);
+    /* 有了分类暂时就不需要做高亮
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration("codeseeker.dangerousFunction")) {
-            externalCalleeProvider.refreshDangerousFunctionHighlight();
-        }
-    }));
+      if (e.affectsConfiguration("codeseeker.dangerousFunction")) {
+        externalCalleeProvider.refreshDangerousFunctionHighlight();
+      }
+    }))*/
 }
 exports.activate = activate;
 function deactivate() { }
@@ -3824,6 +3825,39 @@ class ExternalCalleeProvider {
         this._onDidChangeTreeData = new vscode.EventEmitter();
         this.onDidChangeTreeData = this._onDidChangeTreeData.event;
         this.data = [];
+        this.rules = [
+            {
+                name: "命令注入",
+                id: "commend_inject",
+                patterns: [
+                    "java.lang.Runtime:exec",
+                    "java.lang.ProcessBuilder"
+                ]
+            },
+            {
+                name: "环境变量",
+                id: "env",
+                patterns: [
+                    "java.lang.System:getenv",
+                    "java.lang.System:setenv"
+                ]
+            },
+            {
+                name: "其他_java",
+                id: "other_java",
+                patterns: [
+                    "java",
+                    "javax"
+                ]
+            },
+            {
+                name: "其他_huawei",
+                id: "other_huawei",
+                patterns: [
+                    "com.huawei"
+                ]
+            }
+        ];
         const disposable = vscode.commands.registerCommand('vscode-callgraph.getProjectExternalCallees', () => __awaiter(this, void 0, void 0, function* () {
             const respone = yield (0, node_fetch_1.default)(`http://127.0.0.1:8080/project/current`, { method: 'GET' });
             const project = yield respone.json();
@@ -3876,14 +3910,54 @@ class ExternalCalleeProvider {
                 newCaller.collapsibleState = vscode.TreeItemCollapsibleState.None;
                 newNode.children.push(newCaller);
             }
-            this.data.push(newNode);
+            this.pushCatalogNode(newNode);
         }
     }
     refresh(jsonData) {
         this.data = [];
         this.transferCallGraph2TreeJson(JSON.parse(jsonData), true);
-        this.refreshDangerousFunctionHighlight();
+        //this.refreshDangerousFunctionHighlight();
         this._onDidChangeTreeData.fire(null);
+    }
+    pushCatalogNode(calleeNode) {
+        let catalog;
+        let foundRule = false;
+        let ruleAdded = false;
+        let ruleId = '';
+        let catalogName = '其他';
+        let i = 0;
+        //是否找到匹配规则
+        for (i = 0; !foundRule && i < this.rules.length; ++i) {
+            for (let j = 0; !foundRule && j < this.rules[i].patterns.length; ++j) {
+                if (calleeNode.data.fullMethod.indexOf(this.rules[i].patterns[j]) == 0) {
+                    foundRule = true;
+                    ruleId = this.rules[i].id;
+                    catalogName = this.rules[i].name;
+                    break;
+                }
+            }
+        }
+        //判断类别是否以添加
+        for (catalog of this.data) {
+            if (ruleId == catalog.data.id) {
+                ruleAdded = true;
+                break;
+            }
+        }
+        //添加类别节点
+        if (ruleAdded && catalog != undefined && catalog.children != undefined) {
+            catalog.children.push(calleeNode);
+        }
+        else {
+            catalog = new Callee('');
+            catalog.label = catalogName;
+            catalog.data = {};
+            catalog.data.id = ruleId;
+            catalog.children = [];
+            catalog.children.push(calleeNode);
+            catalog.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
+            this.data.push(catalog);
+        }
     }
     refreshDangerousFunctionHighlight() {
         const dangerousFuncs = vscode.workspace.getConfiguration('codeseeker').dangerousFunction;
@@ -3909,6 +3983,13 @@ class Callee extends vscode.TreeItem {
     build() {
         this.command = { command: 'vscode-callgraph.openfile', title: "Open File", arguments: [this.data] };
         this.tooltip = this.data.fullMethod + ' :' + this.data.lineNum;
+    }
+}
+class Rule {
+    constructor(name, id, patterns) {
+        this.name = name;
+        this.id = id;
+        this.patterns = [...patterns];
     }
 }
 
